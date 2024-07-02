@@ -1,52 +1,37 @@
 import json
-import re
-import string
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.neighbors import NearestNeighbors
 import joblib
 
-# Load JSON data
-with open('data.json') as f:
-    data = json.load(f)
+with open('data.json', 'r', encoding='utf-8') as file:
+    music_data = json.load(file)
 
-# Extract descriptions, album titles, and song titles
-descriptions = []
-album_titles = []
-song_titles = []
-for artist in data:
-    for album in artist['albums']:
-        descriptions.append(album['description'].strip())
-        album_titles.append(album['title'].strip())
-        for song in album['songs']:
-            song_titles.append(song['title'].strip())
+def extract_features(data):
+    features = []
+    for artist in data:
+        artist_name = artist.get('name', '')
+        for album in artist.get('albums', []):
+            album_title = album.get('title', '')
+            album_description = album.get('description', '')
+            for song in album.get('songs', []):
+                song_title = song.get('title', '')
+                feature = f"{artist_name} {album_title} {album_description} {song_title}"
+                features.append((feature, song_title))
+    return features
 
-# Combine all texts
-all_texts = descriptions + album_titles + song_titles
+features = extract_features(music_data)
+texts, song_titles = zip(*features)
 
-print(all_texts)
+# Vectorize the text data
+vectorizer = TfidfVectorizer()
+X = vectorizer.fit_transform(texts)
 
-# Function to clean and preprocess text
-def preprocess_text(text):
-    text = text.lower()  # Convert to lowercase
-    text = re.sub(f'[{re.escape(string.punctuation)}]', '', text)  # Remove punctuation
-    text = re.sub('\s+', ' ', text)  # Remove extra spaces
-    return text
+# Train the nearest neighbors model
+model = NearestNeighbors(n_neighbors=10, algorithm='auto').fit(X)
 
-# Preprocess all texts
-cleaned_texts = [preprocess_text(text) for text in all_texts]
+# Save the model and vectorizer
+joblib.dump(model, 'model/model.joblib')
+joblib.dump(vectorizer, 'model/vectorizer.joblib')
+joblib.dump(song_titles, 'model/song_titles.joblib')
 
-# Create TF-IDF Vectorizer
-tfidf_vectorizer = TfidfVectorizer(stop_words='english')
-
-# Fit and transform descriptions
-X = tfidf_vectorizer.fit_transform(cleaned_texts)
-
-# Initialize k-NN model
-knn = NearestNeighbors(n_neighbors=5, algorithm='auto').fit(X)
-
-# Save the vectorizer and model to files
-joblib.dump(tfidf_vectorizer, 'model/tfidf_vectorizer.pkl')
-joblib.dump(knn, 'model/knn_model.pkl')
-joblib.dump(all_texts, 'model/all_texts.pkl')  # Save the original texts for later use
-
-print("Model and vectorizer saved successfully.")
+print('model saved')
