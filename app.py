@@ -1,24 +1,37 @@
 from flask import Flask, request, jsonify
 import joblib
+import json
 import logging
-from flask_cors import CORS  # Import CORS from flask_cors module
+from flask_cors import CORS
 
 app = Flask(__name__)
-CORS(app)  # Enable CORS for all routes
+CORS(app)
 
 # Load the model and vectorizer
 model = joblib.load('model/model.joblib')
 vectorizer = joblib.load('model/vectorizer.joblib')
 song_titles = joblib.load('model/song_titles.joblib')
 
+# Load the original data.json
+with open('data.json', 'r') as file:
+    data = json.load(file)
+
+# Create a dictionary mapping lowercase song-title and artist pairs to original titles
+original_titles_dict = {
+    f"{song['title'].lower()} - {artist['name'].lower()}": f"{song['title']} - {artist['name']}"
+    for artist in data
+    for album in artist['albums']
+    for song in album['songs']
+}
+
 # Set up logging
 logging.basicConfig(level=logging.DEBUG)
 
 @app.route('/autocomplete', methods=['GET'])
 def autocomplete():
-    query = request.args.get('query', '')
+    query = request.args.get('query', '').lower()  # Convert query to lowercase
     n_neighbors = int(request.args.get('n_neighbors', 10))
-    threshold = 0.4  # Hardcoded threshold value for suggestions
+    threshold = 0.4  # Adjust threshold as needed
     
     # Generate n-grams and substrings for the query
     query_ngrams_and_substrings = generate_features(query, 3)
@@ -40,6 +53,10 @@ def autocomplete():
                 if suggestion not in results or dist < results[suggestion]:
                     results[suggestion] = dist
     
+    # Log results with distances for debugging
+    for suggestion, dist in results.items():
+        logging.debug(f'Suggestion: {suggestion}, Distance: {dist}')
+
     # Sort results by distance and convert to list of tuples
     sorted_results = sorted(results.items(), key=lambda x: x[1])
 
@@ -54,7 +71,12 @@ def autocomplete():
             unique_suggestions.append(suggestion)
             seen.add(suggestion)
 
-    return jsonify(unique_suggestions[:n_neighbors])
+    # Map suggestions to their original case
+    original_case_suggestions = [
+        original_titles_dict[suggestion.lower()] for suggestion in unique_suggestions if suggestion.lower() in original_titles_dict
+    ]
+
+    return jsonify(original_case_suggestions[:n_neighbors])
 
 def generate_features(text, n):
     words = text.split()
